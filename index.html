@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Sync V3 - Orange Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #080808; color: white; scroll-behavior: smooth; }
+        .orange-glow { box-shadow: 0 0 20px rgba(249, 115, 22, 0.15); }
+        .sync-active { color: #f97316; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        input::placeholder { color: rgba(255,255,255,0.1); }
+        .glass-card { background: rgba(18, 18, 18, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.03); }
+        .video-link { color: #f97316; text-decoration: none; font-size: 11px; font-weight: 800; border-bottom: 1px solid #f97316; }
+        @media print { .no-print { display: none !important; } body { background: white; color: black; } }
+    </style>
+</head>
+<body class="min-h-screen pb-20">
+
+    <!-- Navbar -->
+    <nav class="no-print sticky top-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/5 p-4">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-500/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3"><path d="M6 3h12l-2 18H8L6 3z"/><path d="M12 3v18"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-sm font-black uppercase tracking-tighter text-white">Elite Sync <span class="text-orange-500 italic">V3.0</span></h1>
+                    <p id="status-text" class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">CONNECTING...</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button id="cloud-btn" onclick="activateCloud()" class="bg-orange-500 text-black px-6 py-2.5 rounded-full font-black text-[10px] uppercase hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20">
+                    تفعيل الربط السحابي
+                </button>
+                <button onclick="window.print()" class="bg-white/5 text-white p-2.5 rounded-full border border-white/10 hover:bg-white/10">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z"/></svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="p-6 md:p-12 max-w-7xl mx-auto">
+        <header class="mb-16 space-y-2">
+            <input type="text" id="client-name" oninput="autoSave()" placeholder="CLIENT NAME" class="w-full bg-transparent text-5xl md:text-8xl font-black italic tracking-tighter uppercase outline-none focus:text-orange-500 transition-colors">
+            <div class="flex items-center gap-4">
+                <input type="text" id="program-title" oninput="autoSave()" placeholder="TRAINING PROTOCOL" class="bg-transparent text-sm font-black text-orange-500 uppercase tracking-[0.4em] outline-none">
+            </div>
+        </header>
+
+        <div id="program-container" class="space-y-16"></div>
+
+        <div class="no-print mt-16">
+            <button onclick="addDay()" class="w-full py-16 border-2 border-dashed border-white/10 rounded-[2rem] hover:border-orange-500/40 hover:bg-orange-500/[0.02] transition-all group">
+                <span class="text-gray-600 font-black italic text-xl group-hover:text-orange-500 transition-colors uppercase">+ Add New Training Day</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- Share Modal -->
+    <div id="share-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+        <div class="bg-[#111] border border-orange-500/20 p-8 rounded-[2.5rem] max-w-md w-full text-center shadow-2xl">
+            <div class="w-20 h-20 bg-orange-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-orange-500/30">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3"><path d="M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3"/></svg>
+            </div>
+            <h2 class="text-2xl font-black italic mb-2 text-white uppercase">Cloud Sync Ready</h2>
+            <p class="text-gray-500 text-sm mb-8 px-4">تم حفظ البرنامج بنجاح. انسخ الرابط وشاركه مع المتدرب لمتابعة التحديثات لحظياً.</p>
+            <div class="bg-black border border-white/5 p-3 rounded-xl mb-6">
+                <input type="text" id="share-url" readonly class="w-full bg-transparent text-orange-500 text-[10px] text-center font-mono outline-none">
+            </div>
+            <button onclick="copyAndClose()" class="w-full bg-orange-500 text-black py-4 rounded-xl font-black uppercase tracking-widest hover:bg-orange-400 transform active:scale-95 transition-all">Copy Link</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase Initialisation ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'elite-orange-v3';
+        
+        let user = null;
+        let workoutId = new URLSearchParams(window.location.search).get('id');
+        let programData = {
+            clientName: '',
+            programTitle: 'ULTIMATE PERFORMANCE',
+            days: [
+                {
+                    id: Date.now(),
+                    title: 'DAY 01: PUSH (CHEST/SHOULDER)',
+                    exercises: [{ name: '', sets: '', reps: '', weight: '', rest: '', video: '' }],
+                    cardio: { activity: '', duration: '', intensity: '' }
+                }
+            ]
+        };
+
+        // --- Auth Guarded Initialisation ---
+        async function setupAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const result = await auth.signInWithCustomToken(__initial_auth_token);
+                    user = result.user;
+                } else {
+                    const result = await auth.signInAnonymously();
+                    user = result.user;
+                }
+
+                if (user) {
+                    if (workoutId) {
+                        startListening();
+                    } else {
+                        document.getElementById('status-text').innerText = 'OFFLINE MODE';
+                        render();
+                    }
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
+                document.getElementById('status-text').innerText = 'AUTH ERROR';
+            }
+        }
+
+        function startListening() {
+            if (!user || !workoutId) return;
+            document.getElementById('status-text').innerText = 'SYNCING...';
+            
+            const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('workouts').doc(workoutId);
+            
+            docRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    programData = doc.data();
+                    render();
+                    document.getElementById('status-text').innerText = 'LIVE SYNC: ACTIVE';
+                    document.getElementById('status-text').classList.add('sync-active');
+                    document.getElementById('cloud-btn').style.display = 'none';
+                }
+            }, (error) => {
+                console.error("Snapshot Error:", error);
+                document.getElementById('status-text').innerText = 'SYNC ERROR';
+            });
+        }
+
+        // --- UI Rendering ---
+        function render() {
+            document.getElementById('client-name').value = programData.clientName || '';
+            document.getElementById('program-title').value = programData.programTitle || '';
+            const container = document.getElementById('program-container');
+            container.innerHTML = '';
+
+            programData.days.forEach((day, dIdx) => {
+                const section = document.createElement('section');
+                section.className = 'glass-card rounded-[2rem] overflow-hidden shadow-2xl';
+                section.innerHTML = `
+                    <div class="p-6 md:p-8 bg-white/[0.02] border-b border-white/5 flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-4 flex-1">
+                            <span class="text-orange-500 font-black italic text-lg">0${dIdx+1}</span>
+                            <input oninput="updateDay(${dIdx}, 'title', this.value)" value="${day.title}" class="bg-transparent font-black italic text-xl md:text-2xl outline-none text-white w-full uppercase">
+                        </div>
+                        <button onclick="removeDay(${dIdx})" class="no-print opacity-20 hover:opacity-100 text-red-500 transition-opacity">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto" dir="ltr">
+                        <table class="w-full text-left min-w-[800px]">
+                            <thead>
+                                <tr class="bg-black/50 text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">
+                                    <th class="p-6">Exercise</th>
+                                    <th class="p-6 text-center w-24">Sets</th>
+                                    <th class="p-6 text-center w-24">Reps</th>
+                                    <th class="p-6 text-center w-28">Rest</th>
+                                    <th class="p-6 text-center w-32 text-orange-500">Weight</th>
+                                    <th class="p-6 text-right w-56 no-print">Video URL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${day.exercises.map((ex, eIdx) => `
+                                    <tr class="border-b border-white/5 group hover:bg-white/[0.01]">
+                                        <td class="p-6">
+                                            <input oninput="updateEx(${dIdx}, ${eIdx}, 'name', this.value)" value="${ex.name}" placeholder="Exercise..." class="bg-transparent w-full outline-none font-bold text-white text-sm uppercase">
+                                            ${ex.video ? `<a href="${ex.video}" target="_blank" class="video-link inline-block mt-2 uppercase italic">Watch Tutorial</a>` : ''}
+                                        </td>
+                                        <td class="p-6"><input oninput="updateEx(${dIdx}, ${eIdx}, 'sets', this.value)" value="${ex.sets}" class="bg-transparent w-full text-center outline-none text-gray-400 font-bold"></td>
+                                        <td class="p-6"><input oninput="updateEx(${dIdx}, ${eIdx}, 'reps', this.value)" value="${ex.reps}" class="bg-transparent w-full text-center outline-none text-gray-400 font-bold"></td>
+                                        <td class="p-6"><input oninput="updateEx(${dIdx}, ${eIdx}, 'rest', this.value)" value="${ex.rest || ''}" placeholder="--" class="bg-transparent w-full text-center outline-none text-orange-200/50 font-bold italic"></td>
+                                        <td class="p-6 bg-orange-500/[0.02]"><input oninput="updateEx(${dIdx}, ${eIdx}, 'weight', this.value)" value="${ex.weight}" class="bg-transparent w-full text-center outline-none font-black text-orange-500 uppercase"></td>
+                                        <td class="p-6 no-print">
+                                            <div class="flex items-center gap-2 bg-black/40 px-3 py-2 rounded-lg border border-white/5">
+                                                <input oninput="updateEx(${dIdx}, ${eIdx}, 'video', this.value)" value="${ex.video || ''}" placeholder="Link..." class="bg-transparent w-full text-[10px] outline-none text-gray-600 font-mono">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-6 border-b border-white/5 no-print">
+                        <button onclick="addEx(${dIdx})" class="text-[10px] font-black text-gray-500 hover:text-orange-500 uppercase flex items-center gap-2 transition-colors">
+                            <span class="text-xl">+</span> Add Exercise
+                        </button>
+                    </div>
+                    <div class="p-8 bg-orange-500/[0.02] grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="space-y-1">
+                            <span class="text-[9px] font-black text-orange-500/50 uppercase italic tracking-widest">Cardio Activity</span>
+                            <input oninput="updateCardio(${dIdx}, 'activity', this.value)" value="${day.cardio?.activity || ''}" class="bg-transparent w-full border-b border-white/5 pb-2 outline-none font-black text-white italic">
+                        </div>
+                        <div class="space-y-1">
+                            <span class="text-[9px] font-black text-orange-500/50 uppercase italic tracking-widest">Duration</span>
+                            <input oninput="updateCardio(${dIdx}, 'duration', this.value)" value="${day.cardio?.duration || ''}" class="bg-transparent w-full border-b border-white/5 pb-2 outline-none font-black text-white italic">
+                        </div>
+                        <div class="space-y-1">
+                            <span class="text-[9px] font-black text-orange-500/50 uppercase italic tracking-widest">Intensity</span>
+                            <input oninput="updateCardio(${dIdx}, 'intensity', this.value)" value="${day.cardio?.intensity || ''}" class="bg-transparent w-full border-b border-white/5 pb-2 outline-none font-black text-white italic">
+                        </div>
+                    </div>
+                `;
+                container.appendChild(section);
+            });
+        }
+
+        // --- Data Mutators ---
+        function updateDay(dIdx, key, val) { programData.days[dIdx][key] = val; autoSave(); }
+        function updateEx(dIdx, eIdx, key, val) { 
+            programData.days[dIdx].exercises[eIdx][key] = val; 
+            if(key === 'video') render(); 
+            autoSave(); 
+        }
+        function updateCardio(dIdx, key, val) { 
+            if(!programData.days[dIdx].cardio) programData.days[dIdx].cardio = {};
+            programData.days[dIdx].cardio[key] = val; 
+            autoSave(); 
+        }
+
+        function addDay() {
+            programData.days.push({ 
+                id: Date.now(), 
+                title: 'NEW WORKOUT DAY', 
+                exercises: [{ name: '', sets: '', reps: '', weight: '', rest: '', video: '' }],
+                cardio: { activity: '', duration: '', intensity: '' }
+            });
+            render();
+            autoSave();
+        }
+
+        function removeDay(dIdx) {
+            programData.days.splice(dIdx, 1);
+            render();
+            autoSave();
+        }
+
+        function addEx(dIdx) {
+            programData.days[dIdx].exercises.push({ name: '', sets: '', reps: '', weight: '', rest: '', video: '' });
+            render();
+            autoSave();
+        }
+
+        async function activateCloud() {
+            if (!user) {
+                console.error("User not authenticated");
+                return;
+            }
+            workoutId = 'O' + Math.random().toString(36).substr(2, 6).toUpperCase();
+            try {
+                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('workouts').doc(workoutId);
+                await docRef.set({...programData, createdAt: new Date()});
+                
+                // Get the base URL without query params
+                const baseUrl = window.location.href.split('?')[0].split('#')[0];
+                const finalUrl = baseUrl + '?id=' + workoutId;
+                
+                document.getElementById('share-url').value = finalUrl;
+                document.getElementById('share-modal').classList.remove('hidden');
+                
+                // Note: window.history.pushState is disabled to avoid SecurityError in blob environment
+                startListening();
+            } catch (error) {
+                console.error("Cloud Activation Error:", error);
+            }
+        }
+
+        function autoSave() {
+            programData.clientName = document.getElementById('client-name').value;
+            programData.programTitle = document.getElementById('program-title').value;
+            
+            if (workoutId && user) {
+                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('workouts').doc(workoutId);
+                docRef.update(programData).catch(err => console.error("AutoSave Error:", err));
+            }
+        }
+
+        function copyAndClose() {
+            const copyText = document.getElementById("share-url");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999);
+            document.execCommand("copy");
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        window.onload = setupAuth;
+    </script>
+</body>
+</html>
