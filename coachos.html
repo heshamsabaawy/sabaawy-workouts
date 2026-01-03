@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Coach OS | المنصة المتكاملة</title>
+    
+    <!-- Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = window.__app_id || 'elite-coach-os-v1';
+
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+        window.firestore = { doc, setDoc, getDoc, onSnapshot };
+        window.firebaseAuth = { signInAnonymously, signInWithCustomToken, onAuthStateChanged };
+        
+        window.initAuth = async () => {
+            if (window.__initial_auth_token) {
+                await signInWithCustomToken(auth, window.__initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+        
+        window.saveData = async (id, data, uid) => {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'clients', id), {
+                ...data,
+                updatedAt: new Date().toISOString(),
+                coachId: uid
+            }, { merge: true });
+        };
+        
+        window.listenToData = (id, callback) => {
+            return onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'clients', id), callback);
+        };
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap');
+        
+        :root {
+            --primary: #f59e0b;
+            --bg-dark: #020617;
+            --card-bg: #0f172a;
+        }
+
+        body { 
+            font-family: 'Cairo', sans-serif; 
+            background-color: var(--bg-dark); 
+            color: #f1f5f9;
+            margin: 0;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .nav-item.active {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--primary);
+            border-right: 3px solid var(--primary);
+        }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background-color: white; color: black; }
+            .glass-panel { border: 1px solid #ccc; box-shadow: none; background: white; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, createElement } = React;
+        
+        /**
+         * Helper component to render Lucide icons safely in a browser environment
+         * where icons might not be registered as proper React components.
+         */
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }, [name]);
+
+            return (
+                <i 
+                    data-lucide={name} 
+                    style={{ width: size, height: size }} 
+                    className={`inline-block ${className}`}
+                ></i>
+            );
+        };
+
+        const emptyClient = {
+            name: '',
+            goal: 'تحسين اللياقة',
+            duration: '12 أسبوع',
+            notes: '',
+            workout: [
+                { id: Date.now(), name: 'اليوم الأول', exercises: [{ id: 1, name: '', sets: '', reps: '', weight: '', video: '' }] }
+            ],
+            nutrition: [
+                { id: Date.now(), name: 'وجبة الإفطار', items: [{ id: 1, name: '', amount: '', cal: '', p: '', c: '', f: '' }] }
+            ]
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [view, setView] = useState('dashboard');
+            const [activeTab, setActiveTab] = useState('workout');
+            const [clientData, setClientData] = useState(emptyClient);
+            const [clientId, setClientId] = useState(null);
+            const [history, setHistory] = useState([]);
+            const [isSaving, setIsSaving] = useState(false);
+            const [showModal, setShowModal] = useState(false);
+            const [generatedLink, setGeneratedLink] = useState('');
+
+            useEffect(() => {
+                if (window.initAuth) window.initAuth();
+                
+                const localHistory = JSON.parse(localStorage.getItem('coach_os_history') || '[]');
+                setHistory(localHistory);
+
+                const urlParams = new URLSearchParams(window.location.search);
+                const id = urlParams.get('id');
+                
+                if (window.auth) {
+                    const unsubscribe = window.auth.onAuthStateChanged((u) => {
+                        setUser(u);
+                        if (u && id) {
+                            setClientId(id);
+                            setView('editor');
+                            window.listenToData(id, (doc) => {
+                                if (doc.exists()) {
+                                    setClientData(doc.data());
+                                }
+                            });
+                        }
+                    });
+                    return () => unsubscribe();
+                }
+            }, []);
+
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [view, activeTab, showModal]);
+
+            const handleSave = async () => {
+                if (!user) return;
+                setIsSaving(true);
+                const id = clientId || 'c-' + Math.random().toString(36).substr(2, 9);
+                
+                try {
+                    await window.saveData(id, clientData, user.uid);
+                    const newEntry = { id, name: clientData.name || 'عميل جديد', date: new Date().toLocaleDateString('ar-EG') };
+                    const newHistory = [newEntry, ...history.filter(h => h.id !== id)];
+                    localStorage.setItem('coach_os_history', JSON.stringify(newHistory));
+                    setHistory(newHistory);
+                    setClientId(id);
+                    const newUrl = `${window.location.origin}${window.location.pathname}?id=${id}`;
+                    setGeneratedLink(newUrl);
+                    setShowModal(true);
+                } catch (e) { console.error(e); }
+                setIsSaving(false);
+            };
+
+            const Dashboard = () => (
+                <div className="p-6 md:p-10 max-w-6xl mx-auto">
+                    <header className="mb-10 flex justify-between items-end">
+                        <div>
+                            <h1 className="text-4xl font-black text-white mb-2">COACH <span className="text-amber-500">OS</span></h1>
+                            <p className="text-slate-400 font-bold text-sm">لوحة التحكم المركزية للمدربين المحترفين</p>
+                        </div>
+                        <button onClick={() => { setClientData(emptyClient); setClientId(null); setView('editor'); }} className="bg-amber-500 hover:bg-amber-400 text-black px-6 py-3 rounded-xl font-black flex items-center gap-2 shadow-lg transition-all">
+                            <Icon name="plus" /> عميل جديد
+                        </button>
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                        <div className="glass-panel p-6 rounded-3xl border-r-4 border-amber-500">
+                            <div className="text-slate-400 text-xs font-bold mb-1">إجمالي العملاء</div>
+                            <div className="text-3xl font-black">{history.length}</div>
+                        </div>
+                    </div>
+
+                    <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-white"><Icon name="users"/> آخر العملاء</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {history.map(h => (
+                            <div key={h.id} onClick={() => { window.location.search = `?id=${h.id}` }} 
+                                 className="glass-panel p-5 rounded-2xl cursor-pointer hover:border-amber-500/50 transition-all group">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h3 className="font-bold text-lg text-white group-hover:text-amber-400">{h.name}</h3>
+                                        <p className="text-xs text-slate-500 mt-1">{h.date}</p>
+                                    </div>
+                                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 group-hover:bg-amber-500 group-hover:text-black transition-all">
+                                        <Icon name="chevron-right" size={16} />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const Editor = () => (
+                <div className="flex flex-col md:flex-row min-h-screen">
+                    <aside className="w-full md:w-20 lg:w-64 bg-slate-900 border-l border-white/5 flex flex-col no-print sticky top-0 h-screen">
+                        <div className="p-6 flex items-center justify-center lg:justify-start gap-3 border-b border-white/5 cursor-pointer" onClick={() => setView('dashboard')}>
+                            <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center font-black text-black">C</div>
+                            <span className="font-black text-xl hidden lg:block">COACH</span>
+                        </div>
+                        <nav className="flex-1 p-4 space-y-2">
+                            <button onClick={() => setActiveTab('workout')} className={`nav-item w-full p-3 rounded-xl flex items-center justify-center lg:justify-start gap-3 text-slate-400 hover:text-white transition-all ${activeTab === 'workout' ? 'active' : ''}`}>
+                                <Icon name="dumbbell" /> <span className="hidden lg:block font-bold">التمارين</span>
+                            </button>
+                            <button onClick={() => setActiveTab('nutrition')} className={`nav-item w-full p-3 rounded-xl flex items-center justify-center lg:justify-start gap-3 text-slate-400 hover:text-white transition-all ${activeTab === 'nutrition' ? 'active' : ''}`}>
+                                <Icon name="apple" /> <span className="hidden lg:block font-bold">التغذية</span>
+                            </button>
+                        </nav>
+                        <div className="p-4 border-t border-white/5 space-y-3">
+                            <button onClick={handleSave} disabled={isSaving} className="w-full bg-amber-500 hover:bg-amber-400 text-black p-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg">
+                                {isSaving ? <Icon name="loader-2" className="animate-spin" /> : <Icon name="share-2" />} <span className="hidden lg:block">حفظ ومشاركة</span>
+                            </button>
+                            <button onClick={() => window.print()} className="w-full bg-slate-800 text-white p-3 rounded-xl font-bold flex items-center justify-center gap-2">
+                                <Icon name="file-text" /> <span className="hidden lg:block">PDF</span>
+                            </button>
+                        </div>
+                    </aside>
+
+                    <main className="flex-1 p-4 md:p-8 overflow-y-auto bg-[#020617]">
+                        <div className="bg-slate-900/50 p-6 rounded-3xl border border-white/5 mb-8">
+                            <label className="text-[10px] text-amber-500 font-black uppercase block mb-2">اسم العميل</label>
+                            <input value={clientData.name} onChange={e => setClientData({...clientData, name: e.target.value})} className="w-full bg-transparent text-3xl font-bold outline-none text-white placeholder-slate-800" placeholder="اكتب الاسم..." />
+                        </div>
+
+                        {activeTab === 'workout' ? (
+                            <div className="space-y-8">
+                                {clientData.workout.map((day, dIdx) => (
+                                    <div key={day.id} className="glass-panel rounded-3xl overflow-hidden">
+                                        <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                                            <input value={day.name} onChange={e => {
+                                                const n = [...clientData.workout]; n[dIdx].name = e.target.value; setClientData({...clientData, workout: n});
+                                            }} className="bg-transparent text-xl font-bold outline-none text-white" />
+                                            <button onClick={() => {
+                                                const n = [...clientData.workout]; n.splice(dIdx, 1); setClientData({...clientData, workout: n});
+                                            }} className="text-red-500 no-print"><Icon name="trash-2" size={16}/></button>
+                                        </div>
+                                        <div className="p-6 overflow-x-auto">
+                                            <table className="w-full text-right">
+                                                <thead>
+                                                    <tr className="text-[10px] text-slate-500 font-black border-b border-white/5">
+                                                        <th className="pb-4">التمرين</th>
+                                                        <th className="pb-4 text-center">مجموعات</th>
+                                                        <th className="pb-4 text-center">عدات</th>
+                                                        <th className="pb-4 text-center text-amber-500">وزن</th>
+                                                        <th className="no-print"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-white/5">
+                                                    {day.exercises.map((ex, eIdx) => (
+                                                        <tr key={ex.id}>
+                                                            <td className="py-4"><input value={ex.name} onChange={e => {
+                                                                const n = [...clientData.workout]; n[dIdx].exercises[eIdx].name = e.target.value; setClientData({...clientData, workout: n});
+                                                            }} className="bg-transparent w-full font-bold outline-none" /></td>
+                                                            <td className="py-4"><input value={ex.sets} onChange={e => {
+                                                                const n = [...clientData.workout]; n[dIdx].exercises[eIdx].sets = e.target.value; setClientData({...clientData, workout: n});
+                                                            }} className="bg-transparent w-full text-center outline-none" /></td>
+                                                            <td className="py-4"><input value={ex.reps} onChange={e => {
+                                                                const n = [...clientData.workout]; n[dIdx].exercises[eIdx].reps = e.target.value; setClientData({...clientData, workout: n});
+                                                            }} className="bg-transparent w-full text-center outline-none" /></td>
+                                                            <td className="py-4 bg-amber-500/5"><input value={ex.weight} onChange={e => {
+                                                                const n = [...clientData.workout]; n[dIdx].exercises[eIdx].weight = e.target.value; setClientData({...clientData, workout: n});
+                                                            }} className="bg-transparent w-full text-center font-bold text-amber-500 outline-none" /></td>
+                                                            <td className="no-print"><button onClick={() => {
+                                                                const n = [...clientData.workout]; n[dIdx].exercises.splice(eIdx, 1); setClientData({...clientData, workout: n});
+                                                            }} className="text-slate-600 hover:text-red-500">✕</button></td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            <button onClick={() => {
+                                                const n = [...clientData.workout]; n[dIdx].exercises.push({ id: Date.now(), name: '', sets: '', reps: '', weight: '' }); setClientData({...clientData, workout: n});
+                                            }} className="mt-4 text-xs font-bold text-slate-500 no-print">+ إضافة تمرين</button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <button onClick={() => setClientData({...clientData, workout: [...clientData.workout, { id: Date.now(), name: 'يوم جديد', exercises: [] }]})} className="w-full py-8 border-2 border-dashed border-white/10 rounded-3xl text-slate-600 no-print">+ إضافة يوم</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-8">
+                                {clientData.nutrition.map((meal, mIdx) => (
+                                    <div key={meal.id} className="glass-panel rounded-3xl overflow-hidden">
+                                        <div className="p-6 border-b border-white/5 flex justify-between">
+                                            <input value={meal.name} onChange={e => {
+                                                const n = [...clientData.nutrition]; n[mIdx].name = e.target.value; setClientData({...clientData, nutrition: n});
+                                            }} className="bg-transparent text-xl font-bold outline-none" />
+                                            <button onClick={() => {
+                                                const n = [...clientData.nutrition]; n.splice(mIdx, 1); setClientData({...clientData, nutrition: n});
+                                            }} className="text-red-500 no-print"><Icon name="trash-2" size={16}/></button>
+                                        </div>
+                                        <div className="p-6 overflow-x-auto">
+                                            <table className="w-full text-right">
+                                                <thead>
+                                                    <tr className="text-[10px] text-slate-500 font-black border-b border-white/5">
+                                                        <th className="pb-3">الصنف</th>
+                                                        <th className="pb-3 text-center">الكمية</th>
+                                                        <th className="pb-3 text-center text-red-400">P</th>
+                                                        <th className="pb-3 text-center text-green-400">C</th>
+                                                        <th className="pb-3 text-center text-yellow-400">F</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {meal.items.map((item, iIdx) => (
+                                                        <tr key={item.id} className="border-b border-white/5">
+                                                            <td className="py-3"><input value={item.name} onChange={e => {
+                                                                const n = [...clientData.nutrition]; n[mIdx].items[iIdx].name = e.target.value; setClientData({...clientData, nutrition: n});
+                                                            }} className="bg-transparent w-full outline-none font-bold" /></td>
+                                                            <td className="py-3"><input value={item.amount} onChange={e => {
+                                                                const n = [...clientData.nutrition]; n[mIdx].items[iIdx].amount = e.target.value; setClientData({...clientData, nutrition: n});
+                                                            }} className="bg-transparent w-full text-center outline-none" /></td>
+                                                            <td className="py-3"><input value={item.p} onChange={e => {
+                                                                const n = [...clientData.nutrition]; n[mIdx].items[iIdx].p = e.target.value; setClientData({...clientData, nutrition: n});
+                                                            }} className="bg-transparent w-full text-center outline-none text-red-400" /></td>
+                                                            <td className="py-3"><input value={item.c} onChange={e => {
+                                                                const n = [...clientData.nutrition]; n[mIdx].items[iIdx].c = e.target.value; setClientData({...clientData, nutrition: n});
+                                                            }} className="bg-transparent w-full text-center outline-none text-green-400" /></td>
+                                                            <td className="py-3"><input value={item.f} onChange={e => {
+                                                                const n = [...clientData.nutrition]; n[mIdx].items[iIdx].f = e.target.value; setClientData({...clientData, nutrition: n});
+                                                            }} className="bg-transparent w-full text-center outline-none text-yellow-400" /></td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            <button onClick={() => {
+                                                const n = [...clientData.nutrition]; n[mIdx].items.push({ id: Date.now(), name: '', amount: '', p: '', c: '', f: '' }); setClientData({...clientData, nutrition: n});
+                                            }} className="mt-4 text-xs font-bold text-slate-500 no-print">+ إضافة صنف</button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <button onClick={() => setClientData({...clientData, nutrition: [...clientData.nutrition, { id: Date.now(), name: 'وجبة جديدة', items: [] }]})} className="w-full py-8 border-2 border-dashed border-white/10 rounded-3xl text-slate-600 no-print">+ إضافة وجبة</button>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+
+            const ShareModal = () => (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-amber-500/30 p-8 rounded-3xl max-w-md w-full text-center">
+                        <div className="w-16 h-16 bg-amber-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <Icon name="check-circle-2" size={32} className="text-black" />
+                        </div>
+                        <h3 className="text-2xl font-black text-white mb-2">الرابط جاهز!</h3>
+                        <div className="bg-black p-4 rounded-xl border border-white/10 mb-6 overflow-hidden text-left">
+                            <code className="text-blue-400 text-xs">{generatedLink}</code>
+                        </div>
+                        <button onClick={() => {
+                             navigator.clipboard.writeText(generatedLink);
+                             setShowModal(false);
+                        }} className="w-full bg-amber-500 text-black py-4 rounded-xl font-black">نسخ وإغلاق</button>
+                    </div>
+                </div>
+            );
+
+            if (view === 'dashboard') return <Dashboard />;
+            return (
+                <>
+                    <Editor />
+                    {showModal && <ShareModal />}
+                </>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
